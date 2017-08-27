@@ -23,6 +23,7 @@ coral.config
 coral.db
 
 # - Signing Configurations (make sure to steal this if you steal something)
+signing.properties
 *.jks
 *.keystore
 

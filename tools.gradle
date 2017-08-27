@@ -1,0 +1,125 @@
+/*
+ * Copyright 2017 Diego Rossi (@_HellPie)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+static String runCommand(command) {
+	def execution = command.execute()
+	execution.waitFor()
+	return execution.in.text.toString()
+}
+
+class Env {
+	def _map = [:]
+
+	def get(String name) {
+		return (_map[name] ? _map[name] : System.getenv(name))
+	}
+}
+
+class GitInfo {
+	String tag = "N/A"
+	String branch = "N/A"
+	String hash = "N/A"
+}
+
+class VersionInfo {
+	int major = 0
+	int minor = 0
+	int patch = 0
+	int build = 0
+
+	String buildVersionName() {
+		return "${major}.${minor}.${patch}"
+	}
+
+	String buildVersionNameSuffix(String stage) {
+		return " [${this.build}] [${stage}]"
+	}
+
+	int buildVersionCode(int identifier) {
+		return identifier == 0 ? 1 : identifier \
+		+ patch * 10 \
+		+ minor * 1000 \
+		+ major * 100000
+	}
+}
+
+static String getGitTag() {
+	return runCommand("git describe --tags --abbrev=0").trim()
+}
+
+static String getGitBranch() {
+	return runCommand("git rev-parse --abbrev-ref HEAD").trim()
+}
+
+static String getGitHash() {
+	return runCommand("git log -1 --format='%h'").trim()
+}
+
+static int getVersionMajor(GitInfo gitInfo) {
+	return gitInfo.tag.isEmpty() ? 0 : gitInfo.tag.split('\\.')[0] as int
+}
+
+static int getVersionMinor(GitInfo gitInfo) {
+	return gitInfo.tag.isEmpty() ? 0 : gitInfo.tag.split('\\.')[1] as int
+}
+
+static int getVersionPatch(GitInfo gitInfo) {
+	return gitInfo.tag.isEmpty() ? 0 : gitInfo.tag.split('\\.')[2].split('-')[0] as int
+}
+
+static int getVersionBuild(File buildFile) {
+	def props = new Properties()
+	props.load(buildFile.newDataInputStream())
+	int number = props.get("BUILD_NUMBER") as int
+	props.setProperty("BUILD_NUMBER", String.valueOf(++number))
+	props.store(buildFile.newWriter(), null)
+	return number
+}
+
+ext.getGitInfo = {
+	return new GitInfo(
+			tag: getGitTag(),
+			branch: getGitBranch(),
+			hash: getGitHash()
+	)
+}
+
+ext.getVersionInfo = { GitInfo gitInfo ->
+	return new VersionInfo(
+			major: getVersionMajor(gitInfo),
+			minor: getVersionMinor(gitInfo),
+			patch: getVersionPatch(gitInfo),
+			build: getVersionBuild(file('./.build_number.properties'))
+	)
+}
+
+ext.getEnv = { file ->
+	if(file == null) file = "gradle.properties"
+
+	def _props = project.file(file)
+	if(!_props.exists()) _props = project.rootProject.file(file)
+
+	def _result = [:]
+	if(_props.exists()) {
+		Properties _content = new Properties()
+		_content.load(_props.newDataInputStream())
+		_content.propertyNames().each {_prop ->
+			_result[_prop] = _content.getProperty(_prop)
+		}
+	}
+
+	return new Env(_map: _result)
+}
